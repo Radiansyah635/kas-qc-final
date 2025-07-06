@@ -471,127 +471,310 @@
     document.getElementById("tgl").value = new Date().toISOString().split('T')[0];
   }
 
-  // ==================== FUNGSI AGENDA ====================
-  document.getElementById("formAgenda").addEventListener("submit", function(e) {
-    e.preventDefault();
-    
-    const agendaText = document.getElementById("agendaText");
-    const agendaImg = document.getElementById("agendaImg");
-    const editId = document.getElementById("editAgendaId");
-    
-    if (!agendaText.value.trim()) {
-      alert("Harap isi agenda meeting!");
-      agendaText.focus();
-      return;
-    }
-    
-    const agendaData = {
-      text: agendaText.value,
-      date: new Date().toISOString().split('T')[0]
-    };
-    
-    if (editId.value) {
-      // Update agenda
-      db.ref('agendas/' + editId.value).update(agendaData)
-        .then(() => showNotification("✅ Agenda berhasil diupdate", "blue"))
-        .catch(error => showNotification(`Error: ${error.message}`, "red"));
-    } else {
-      // Tambah agenda baru
-      db.ref('agendas').push(agendaData)
-        .then(() => showNotification("✅ Agenda berhasil ditambahkan", "blue"))
-        .catch(error => showNotification(`Error: ${error.message}`, "red"));
-    }
-    
-    resetFormAgenda();
-  });
+  // ==================== FUNGSI AGENDA (FIREBASE VERSION) ====================
 
-  // Load data agenda dari Firebase
-  function loadAgendas() {
-    showLoading();
-    db.ref('agendas').orderByChild('date').on('value', (snapshot) => {
-      agendas = [];
-      snapshot.forEach(child => {
-        agendas.push({
-          id: child.key,
-          ...child.val()
-        });
-      });
-      
-      renderAgendas();
-      hideLoading();
-    });
+// Fungsi Submit Agenda (Create/Update)
+document.getElementById("formAgenda").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  
+  const agendaText = document.getElementById("agendaText");
+  const agendaImg = document.getElementById("agendaImg").files[0];
+  const editId = document.getElementById("editAgendaId").value;
+
+  if (!agendaText.value.trim()) {
+    showNotification("Harap isi agenda meeting!", "red");
+    return;
   }
 
-  // Render daftar agenda
-  function renderAgendas() {
+  try {
+    // 1. Upload gambar jika ada file baru
+    let imageUrl = null;
+    if (agendaImg) {
+      if (agendaImg.size > 5 * 1024 * 1024) {
+        showNotification("Ukuran gambar terlalu besar (maks 5MB)", "red");
+        return;
+      }
+      
+      const storageRef = firebase.storage().ref(`agenda-images/${Date.now()}_${agendaImg.name}`);
+      await storageRef.put(agendaImg);
+      imageUrl = await storageRef.getDownloadURL();
+      
+      // Hapus gambar lama jika sedang edit
+      if (editId) {
+        const oldData = (await db.ref(`agendas/${editId}`).once("value")).val();
+        if (oldData.imageUrl) {
+          await firebase.storage().refFromURL(oldData.imageUrl).delete();
+        }
+      }
+    } else if (editId) {
+      // Jika tidak ada gambar baru tapi sedang edit, pertahankan URL lama
+      const oldData = (await db.ref(`agendas/${editId}`).once("value")).val();
+      imageUrl = oldData.imageUrl || null;
+    }
+
+    // 2. Simpan data ke Firebase
+    const agendaData = {
+      text: agendaText.value,
+      date: new Date().toISOString().split('T')[0],
+      imageUrl: imageUrl
+    };
+
+    if (editId) {
+      await db.ref(`agendas/${editId}`).update(agendaData);
+      showNotification("✅ Agenda berhasil diupdate", "green");
+    } else {
+      await db.ref("agendas").push(agendaData);
+      showNotification("✅ Agenda berhasil ditambahkan", "green");
+    }
+
+    resetFormAgenda();
+    loadAgendas(); // Refresh data
+  } catch (error) {
+    console.error("Error:", error);
+    showNotification(`❌ Error: ${error.message}`, "red");
+  }
+});
+
+// Fungsi Load Agenda (Read)
+function loadAgendas() {
+  showLoading();
+  db.ref("agendas").orderByChild("date").on("value", (snapshot) => {
     const agendaList = document.getElementById("agendaList");
     agendaList.innerHTML = "";
-    
-    agendas.forEach(agenda => {
-      const agendaItem = document.createElement("li");
-      agendaItem.className = "bg-gray-800 p-5 rounded-lg shadow hover:shadow-md transition-shadow fade-in";
-      
-      agendaItem.innerHTML = `
-        <div class="flex justify-between items-start">
-          <div>
-            <p class="font-medium">${agenda.text}</p>
-            <p class="text-sm text-gray-400 mt-1">${formatDate(agenda.date)}</p>
+
+    snapshot.forEach((childSnapshot) => {
+      const agenda = childSnapshot.val();
+      const id = childSnapshot.key;
+
+      agendaList.innerHTML += `
+        <div class="agenda-item">
+          ${agenda.imageUrl ? `
+            <img src="${agenda.imageUrl}" 
+                 class="agenda-image"
+                 loading="lazy"
+                 onerror="this.style.display='none'">
+          ` : ''}
+          <div class="agenda-content">
+            <h3>${agenda.text}</h3>
+            <small>${formatDate(agenda.date)}</small>
           </div>
-          <div class="flex space-x-2">
-            <button onclick="editAgenda('${agenda.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">
-              Edit
+          <div class="agenda-actions">
+            <button onclick="editAgenda('${id}')" class="btn-edit">
+              <i class="fas fa-edit"></i>
             </button>
-            <button onclick="hapusAgenda('${agenda.id}')" class="action-btn bg-red-600 hover:bg-red-700">
-              Hapus
+            <button onclick="deleteAgenda('${id}')" class="btn-delete">
+              <i class="fas fa-trash"></i>
             </button>
           </div>
         </div>
       `;
-      
-      agendaList.appendChild(agendaItem);
     });
-  }
+    hideLoading();
+  });
+}
 
-  // Edit agenda
-  function editAgenda(id) {
-    const agenda = agendas.find(a => a.id === id);
-    if (!agenda) return;
+// Fungsi Edit Agenda
+async function editAgenda(id) {
+  try {
+    const agenda = (await db.ref(`agendas/${id}`).once("value")).val();
     
     document.getElementById("agendaText").value = agenda.text;
     document.getElementById("editAgendaId").value = id;
     
-    document.getElementById("submitAgenda").textContent = "Update";
-    document.getElementById("cancelEditAgenda").classList.remove("hidden");
+    const imgContainer = document.getElementById("currentImageContainer");
+    const imgElement = document.getElementById("currentImage");
     
-    document.getElementById("admin").scrollIntoView({ behavior: 'smooth' });
-  }
-
-  // Hapus agenda
-  function hapusAgenda(id) {
-    if (confirm("Apakah Anda yakin ingin menghapus agenda ini?")) {
-      db.ref('agendas/' + id).remove()
-        .then(() => showNotification("❌ Agenda berhasil dihapus", "red"))
-        .catch(error => showNotification(`Error: ${error.message}`, "red"));
+    if (agenda.imageUrl) {
+      imgElement.src = agenda.imageUrl;
+      imgContainer.classList.remove("hidden");
+    } else {
+      imgContainer.classList.add("hidden");
     }
+    
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (error) {
+    showNotification(`❌ Gagal memuat data: ${error.message}`, "red");
+  }
+}
+
+// Fungsi Hapus Agenda (Delete)
+async function deleteAgenda(id) {
+  if (!confirm("Apakah Anda yakin ingin menghapus agenda ini?")) return;
+
+  try {
+    // Hapus gambar dari storage jika ada
+    const agenda = (await db.ref(`agendas/${id}`).once("value")).val();
+    if (agenda.imageUrl) {
+      await firebase.storage().refFromURL(agenda.imageUrl).delete();
+    }
+    
+    // Hapus dari database
+    await db.ref(`agendas/${id}`).remove();
+    showNotification("🗑️ Agenda berhasil dihapus", "blue");
+  } catch (error) {
+    showNotification(`❌ Gagal menghapus: ${error.message}`, "red");
+  }
+}
+
+// Fungsi Reset Form
+function resetFormAgenda() {
+  document.getElementById("formAgenda").reset();
+  document.getElementById("editAgendaId").value = "";
+  document.getElementById("currentImageContainer").classList.add("hidden");
+            }
+// ==================== FUNGSI AGENDA (FIREBASE VERSION) ====================
+
+// Fungsi Submit Agenda (Create/Update)
+document.getElementById("formAgenda").addEventListener("submit", async function(e) {
+  e.preventDefault();
+  
+  const agendaText = document.getElementById("agendaText");
+  const agendaImg = document.getElementById("agendaImg").files[0];
+  const editId = document.getElementById("editAgendaId").value;
+
+  if (!agendaText.value.trim()) {
+    showNotification("Harap isi agenda meeting!", "red");
+    return;
   }
 
-  function removeAgendaImage() {
-    document.getElementById("currentImage").src = "";
-    document.getElementById("currentImageContainer").classList.add("hidden");
-    document.getElementById("agendaImg").value = "";
-  }
+  try {
+    // 1. Upload gambar jika ada file baru
+    let imageUrl = null;
+    if (agendaImg) {
+      if (agendaImg.size > 5 * 1024 * 1024) {
+        showNotification("Ukuran gambar terlalu besar (maks 5MB)", "red");
+        return;
+      }
+      
+      const storageRef = firebase.storage().ref(`agenda-images/${Date.now()}_${agendaImg.name}`);
+      await storageRef.put(agendaImg);
+      imageUrl = await storageRef.getDownloadURL();
+      
+      // Hapus gambar lama jika sedang edit
+      if (editId) {
+        const oldData = (await db.ref(`agendas/${editId}`).once("value")).val();
+        if (oldData.imageUrl) {
+          await firebase.storage().refFromURL(oldData.imageUrl).delete();
+        }
+      }
+    } else if (editId) {
+      // Jika tidak ada gambar baru tapi sedang edit, pertahankan URL lama
+      const oldData = (await db.ref(`agendas/${editId}`).once("value")).val();
+      imageUrl = oldData.imageUrl || null;
+    }
 
-  function cancelEditAgenda() {
+    // 2. Simpan data ke Firebase
+    const agendaData = {
+      text: agendaText.value,
+      date: new Date().toISOString().split('T')[0],
+      imageUrl: imageUrl
+    };
+
+    if (editId) {
+      await db.ref(`agendas/${editId}`).update(agendaData);
+      showNotification("✅ Agenda berhasil diupdate", "green");
+    } else {
+      await db.ref("agendas").push(agendaData);
+      showNotification("✅ Agenda berhasil ditambahkan", "green");
+    }
+
     resetFormAgenda();
+    loadAgendas(); // Refresh data
+  } catch (error) {
+    console.error("Error:", error);
+    showNotification(`❌ Error: ${error.message}`, "red");
   }
+});
 
-  function resetFormAgenda() {
-    document.getElementById("formAgenda").reset();
-    document.getElementById("editAgendaId").value = "";
-    document.getElementById("submitAgenda").textContent = "Simpan";
-    document.getElementById("cancelEditAgenda").classList.add("hidden");
-    document.getElementById("currentImageContainer").classList.add("hidden");
+// Fungsi Load Agenda (Read)
+function loadAgendas() {
+  showLoading();
+  db.ref("agendas").orderByChild("date").on("value", (snapshot) => {
+    const agendaList = document.getElementById("agendaList");
+    agendaList.innerHTML = "";
+
+    snapshot.forEach((childSnapshot) => {
+      const agenda = childSnapshot.val();
+      const id = childSnapshot.key;
+
+      agendaList.innerHTML += `
+        <div class="agenda-item">
+          ${agenda.imageUrl ? `
+            <img src="${agenda.imageUrl}" 
+                 class="agenda-image"
+                 loading="lazy"
+                 onerror="this.style.display='none'">
+          ` : ''}
+          <div class="agenda-content">
+            <h3>${agenda.text}</h3>
+            <small>${formatDate(agenda.date)}</small>
+          </div>
+          <div class="agenda-actions">
+            <button onclick="editAgenda('${id}')" class="btn-edit">
+              <i class="fas fa-edit"></i>
+            </button>
+            <button onclick="deleteAgenda('${id}')" class="btn-delete">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+      `;
+    });
+    hideLoading();
+  });
+}
+
+// Fungsi Edit Agenda
+async function editAgenda(id) {
+  try {
+    const agenda = (await db.ref(`agendas/${id}`).once("value")).val();
+    
+    document.getElementById("agendaText").value = agenda.text;
+    document.getElementById("editAgendaId").value = id;
+    
+    const imgContainer = document.getElementById("currentImageContainer");
+    const imgElement = document.getElementById("currentImage");
+    
+    if (agenda.imageUrl) {
+      imgElement.src = agenda.imageUrl;
+      imgContainer.classList.remove("hidden");
+    } else {
+      imgContainer.classList.add("hidden");
+    }
+    
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (error) {
+    showNotification(`❌ Gagal memuat data: ${error.message}`, "red");
   }
+}
+
+// Fungsi Hapus Agenda (Delete)
+async function deleteAgenda(id) {
+  if (!confirm("Apakah Anda yakin ingin menghapus agenda ini?")) return;
+
+  try {
+    // Hapus gambar dari storage jika ada
+    const agenda = (await db.ref(`agendas/${id}`).once("value")).val();
+    if (agenda.imageUrl) {
+      await firebase.storage().refFromURL(agenda.imageUrl).delete();
+    }
+    
+    // Hapus dari database
+    await db.ref(`agendas/${id}`).remove();
+    showNotification("🗑️ Agenda berhasil dihapus", "blue");
+  } catch (error) {
+    showNotification(`❌ Gagal menghapus: ${error.message}`, "red");
+  }
+}
+
+// Fungsi Reset Form
+function resetFormAgenda() {
+  document.getElementById("formAgenda").reset();
+  document.getElementById("editAgendaId").value = "";
+  document.getElementById("currentImageContainer").classList.add("hidden");
+}
+  
+
 
   // ==================== FITUR LAINNYA ====================
   // Export ke Excel
