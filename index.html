@@ -524,33 +524,35 @@
 
   // Render daftar agenda
   function renderAgendas() {
-    const agendaList = document.getElementById("agendaList");
-    agendaList.innerHTML = "";
-    
-    agendas.forEach(agenda => {
-      const agendaItem = document.createElement("li");
-      agendaItem.className = "bg-gray-800 p-5 rounded-lg shadow hover:shadow-md transition-shadow fade-in";
-      
-      agendaItem.innerHTML = `
-        <div class="flex justify-between items-start">
-          <div>
-            <p class="font-medium">${agenda.text}</p>
-            <p class="text-sm text-gray-400 mt-1">${formatDate(agenda.date)}</p>
-          </div>
-          <div class="flex space-x-2">
-            <button onclick="editAgenda('${agenda.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">
-              Edit
-            </button>
-            <button onclick="hapusAgenda('${agenda.id}')" class="action-btn bg-red-600 hover:bg-red-700">
-              Hapus
-            </button>
-          </div>
+  const agendaList = document.getElementById("agendaList");
+  agendaList.innerHTML = "";
+
+  agendas.forEach(agenda => {
+    const agendaItem = document.createElement("li");
+    agendaItem.className = "bg-gray-800 p-5 rounded-lg shadow hover:shadow-md transition-shadow fade-in";
+
+    agendaItem.innerHTML = `
+      <div class="flex justify-between items-start">
+        <div>
+          <p class="font-medium">${agenda.text}</p>
+          <p class="text-sm text-gray-400 mt-1">${formatDate(agenda.date)}</p>
         </div>
-      `;
-      
-      agendaList.appendChild(agendaItem);
-    });
-  }
+        ${isAdmin ? `
+        <div class="flex space-x-2">
+          <button onclick="editAgenda('${agenda.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">
+            Edit
+          </button>
+          <button onclick="hapusAgenda('${agenda.id}')" class="action-btn bg-red-600 hover:bg-red-700">
+            Hapus
+          </button>
+        </div>
+        ` : ""}
+      </div>
+    `;
+
+    agendaList.appendChild(agendaItem);
+  });
+    }
 
   // Edit agenda
   function editAgenda(id) {
