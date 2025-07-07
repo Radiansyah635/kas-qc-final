@@ -416,22 +416,62 @@
     resetFormTransaksi();
   });
 
-  // Load data transaksi dari Firebase
   function loadTransactions() {
-    showLoading();
-    db.ref('transactions').orderByChild('createdAt').on('value', (snapshot) => {
-      transactions = [];
-      snapshot.forEach(child => {
-        transactions.push({
-          id: child.key,
-          ...child.val()
-        });
+  showLoading();
+  db.ref('transactions').orderByChild('createdAt').on('value', (snapshot) => {
+    transactions = [];
+    snapshot.forEach(child => {
+      transactions.push({
+        id: child.key,
+        ...child.val()
       });
-      
-      updateDashboard();
-      hideLoading();
     });
-  }
+    
+    updateTransactionsTable(transactions); // Ini yang ditambahkan
+    updateDashboard();
+    hideLoading();
+  });
+}
+
+function updateTransactionsTable(transactions) {
+  const logBody = document.getElementById('logBody');
+  logBody.innerHTML = '';
+  const isAdmin = localStorage.getItem('isAdmin') === 'true';
+
+  transactions.forEach(transaksi => {
+    const row = document.createElement('tr');
+    row.className = 'hover:bg-gray-700';
+    
+    row.innerHTML = `
+      <td class="p-3">${formatDate(transaksi.tgl)}</td>
+      <td class="p-3">${transaksi.ket}</td>
+      <td class="p-3 ${transaksi.tipe === 'Masuk' ? 'text-green-400' : 'text-red-400'}">${transaksi.tipe}</td>
+      <td class="p-3 text-right">Rp ${transaksi.jml.toLocaleString('id-ID')}</td>
+      <td class="p-3 text-center">
+        ${isAdmin ? `
+          <button onclick="editTransaksi('${transaksi.id}')" 
+                  class="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 rounded mr-1 text-sm">
+            Edit
+          </button>
+          <button onclick="hapusTransaksi('${transaksi.id}')" 
+                  class="px-2 py-1 bg-red-600 hover:bg-red-700 rounded text-sm">
+            Hapus
+          </button>
+        ` : '<span class="text-gray-400">-</span>'}
+      </td>
+    `;
+    logBody.appendChild(row);
+  });
+}
+
+function formatDate(dateString) {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('id-ID', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
+}
 
   // Edit transaksi
   function editTransaksi(id) {
@@ -524,34 +564,36 @@
 
   // Render daftar agenda
   function renderAgendas() {
-const agendaList = document.getElementById("agendaList");
-agendaList.innerHTML = "";
+  const agendaList = document.getElementById("agendaList");
+  agendaList.innerHTML = "";
+  const isAdmin = localStorage.getItem('isAdmin') === 'true'; // Cek status admin
 
-agendas.forEach(agenda => {  
-  const agendaItem = document.createElement("li");  
-  agendaItem.className = "bg-gray-800 p-5 rounded-lg shadow hover:shadow-md transition-shadow fade-in";  
-    
-  agendaItem.innerHTML = `  
-    <div class="flex justify-between items-start">  
-      <div>  
-        <p class="font-medium">${agenda.text}</p>  
-        <p class="text-sm text-gray-400 mt-1">${formatDate(agenda.date)}</p>  
+  agendas.forEach(agenda => {  
+    const agendaItem = document.createElement("li");  
+    agendaItem.className = "bg-gray-800 p-5 rounded-lg shadow hover:shadow-md transition-shadow fade-in";  
+      
+    agendaItem.innerHTML = `  
+      <div class="flex justify-between items-start">  
+        <div>  
+          <p class="font-medium">${agenda.text}</p>  
+          <p class="text-sm text-gray-400 mt-1">${formatDate(agenda.date)}</p>  
+        </div>  
+        ${isAdmin ? `
+        <div class="flex space-x-2">  
+          <button onclick="editAgenda('${agenda.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">  
+            Edit  
+          </button>  
+          <button onclick="hapusAgenda('${agenda.id}')" class="action-btn bg-red-600 hover:bg-red-700">  
+            Hapus  
+          </button>  
+        </div>
+        ` : ''}  
       </div>  
-      <div class="flex space-x-2">  
-        <button onclick="editAgenda('${agenda.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">  
-          Edit  
-        </button>  
-        <button onclick="hapusAgenda('${agenda.id}')" class="action-btn bg-red-600 hover:bg-red-700">  
-          Hapus  
-        </button>  
-      </div>  
-    </div>  
-  `;  
-    
-  agendaList.appendChild(agendaItem);  
-});
-
-          }
+    `;  
+      
+    agendaList.appendChild(agendaItem);  
+  });
+}
 
   // Edit agenda
   function editAgenda(id) {
@@ -648,35 +690,40 @@ agendas.forEach(agenda => {
 
   // Render daftar transaksi
   function renderTransactions(data) {
-    const logBody = document.getElementById("logBody");
-    logBody.innerHTML = "";
+  const logBody = document.getElementById("logBody");
+  logBody.innerHTML = "";
+  const isAdmin = localStorage.getItem('isAdmin') === 'true'; // Cek status admin
+  
+  data.forEach(trans => {
+    const row = document.createElement("tr");
+    row.className = "hover:bg-gray-700";
     
-    data.forEach(trans => {
-      const row = document.createElement("tr");
-      row.className = "hover:bg-gray-700";
-      
-      row.innerHTML = `
-        <td class="p-3">${formatDate(trans.tgl)}</td>
-        <td class="p-3">${trans.ket}</td>
-        <td class="p-3">
-          <span class="${trans.tipe === 'Masuk' ? 'text-green-400' : 'text-red-400'}">
-            ${trans.tipe}
-          </span>
-        </td>
-        <td class="p-3 text-right">${formatRupiah(trans.jml)}</td>
-        <td class="p-3 text-center space-x-1">
-          <button onclick="editTransaksi('${trans.id}')" class="action-btn bg-yellow-600 hover:bg-yellow-700">
+    row.innerHTML = `
+      <td class="p-3">${formatDate(trans.tgl)}</td>
+      <td class="p-3">${trans.ket}</td>
+      <td class="p-3">
+        <span class="${trans.tipe === 'Masuk' ? 'text-green-400' : 'text-red-400'}">
+          ${trans.tipe}
+        </span>
+      </td>
+      <td class="p-3 text-right">${formatRupiah(trans.jml)}</td>
+      <td class="p-3 text-center">
+        ${isAdmin ? `
+          <button onclick="editTransaksi('${trans.id}')" 
+                  class="action-btn bg-yellow-600 hover:bg-yellow-700 mr-1">
             Edit
           </button>
-          <button onclick="hapusTransaksi('${trans.id}')" class="action-btn bg-red-600 hover:bg-red-700">
+          <button onclick="hapusTransaksi('${trans.id}')" 
+                  class="action-btn bg-red-600 hover:bg-red-700">
             Hapus
           </button>
-        </td>
-      `;
-      
-      logBody.appendChild(row);
-    });
-  }
+        ` : '<span class="text-gray-400">-</span>'}
+      </td>
+    `;
+    
+    logBody.appendChild(row);
+  });
+}
 
   // Update grafik kas
   function updateChart() {
